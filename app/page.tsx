@@ -26,6 +26,23 @@ type ReportData = {
   sections: ReportSection[];
 };
 
+type SessionSlot = {
+  session: number;
+  label: string;
+  reserve: boolean;
+};
+
+const VIOLATION_SESSION_SLOTS: SessionSlot[] = [
+  { session: 1, label: "8h - 8h30", reserve: false },
+  { session: 2, label: "9h - 9h30", reserve: false },
+  { session: 3, label: "10h - 10h30", reserve: false },
+  { session: 4, label: "11h - 11h30", reserve: true },
+  { session: 5, label: "13h30 - 14h", reserve: false },
+  { session: 6, label: "14h30 - 15h", reserve: false },
+  { session: 7, label: "15h30 - 16h", reserve: false },
+  { session: 8, label: "16h30 - 17h", reserve: true },
+];
+
 const normalizeText = (value: unknown): string =>
   String(value ?? "")
     .trim()
@@ -80,6 +97,15 @@ const buildViolationSheetName = (sectionTitle: string): string => {
   const safeEnd = end.replaceAll(":", ".");
   const base = `Ngày${day} - Ca${session}`;
   return base.length > 31 ? base.slice(0, 31) : base;
+};
+
+const parseDayAndSessionFromTitle = (sectionTitle: string): { day: number; session: number } | null => {
+  const match = sectionTitle.match(/NGÀY\s*(\d+)\s*-\s*CA\s*(\d+)/i);
+  if (!match) return null;
+  return {
+    day: Number(match[1]),
+    session: Number(match[2]),
+  };
 };
 
 const buildReportByPgs = (buffer: ArrayBuffer, pgsCode: string): ReportData => {
@@ -279,90 +305,126 @@ export default function Home() {
       { wch: 10 }, // Huy
     ];
 
+    const sectionsByDaySession = new Map<string, ReportSection>();
+    const sectionDays = new Set<number>();
+    for (const section of report.sections) {
+      const daySession = parseDayAndSessionFromTitle(section.title);
+      if (!daySession) continue;
+      const { day, session } = daySession;
+      sectionDays.add(day);
+      sectionsByDaySession.set(`${day}-${session}`, section);
+    }
+
+    if (sectionDays.size === 0) {
+      sectionDays.add(report.summary.twoDayCount > 0 ? 1 : 1);
+      if (report.summary.twoDayCount > 0) sectionDays.add(2);
+    }
+
+    const orderedDays = Array.from(sectionDays).sort((a, b) => a - b);
+
     const wb = XLSXStyle.utils.book_new();
     const usedSheetNames = new Map<string, number>();
 
-    for (const section of report.sections) {
-      const rows: string[][] = [];
-      rows.push(headers);
+    for (const day of orderedDays) {
+      for (const slot of VIOLATION_SESSION_SLOTS) {
+        const section = sectionsByDaySession.get(`${day}-${slot.session}`);
+        const sessionLabel = `Ca ${slot.session} (${slot.label})`;
+        const rows: string[][] = [];
+        const firstHeader = slot.reserve ? "Ca thi dự phòng" : "Ca thi";
+        rows.push([firstHeader, ...headers.slice(1)]);
 
-      // Best-effort mapping from the “phân công” export:
-      // [0]=STT, [1]=Tên HĐT, [2]=Mã HĐT, [3]=Phòng thi, [4]=SL đăng ký, ...
-      const data = section.rows.map((r) => ({
-        council: String(r[1] ?? "").trim(),
-        room: String(r[3] ?? "").trim(),
-        registered: String(r[4] ?? "").trim(),
-      }));
+        const defaultRowCount = 6;
+        if (!section) {
+          rows.push([sessionLabel, "", "", "", "", "", "", ""]);
+          for (let i = 1; i < defaultRowCount; i++) {
+            rows.push(["", "", "", "", "", "", "", ""]);
+          }
+        } else {
+          // Best-effort mapping from the “phân công” export:
+          // [0]=STT, [1]=Tên HĐT, [2]=Mã HĐT, [3]=Phòng thi, [4]=SL đăng ký, ...
+          const data = section.rows.map((r) => ({
+            council: String(r[1] ?? "").trim(),
+            room: String(r[3] ?? "").trim(),
+            registered: String(r[4] ?? "").trim(),
+          }));
 
-      for (const item of data) {
-        rows.push([
-          "", // merged session label
-          item.council,
-          item.room,
-          item.registered,
-          "", // actual
-          "", // violation
-          "", // time
-          "", // cancel
-        ]);
-      }
-
-      const ws = XLSXStyle.utils.aoa_to_sheet(rows) as XLSXStyle.WorkSheet & {
-        "!cols"?: { wch?: number }[];
-        "!merges"?: { s: { r: number; c: number }; e: { r: number; c: number } }[];
-        "!freeze"?: { xSplit?: number; ySplit?: number };
-      };
-
-      ws["!cols"] = colWidths;
-      ws["!freeze"] = { ySplit: 1 };
-
-      // Merge "Ca thi" column vertically like the template image (if there is data)
-      const sessionLabel = parseSessionLabel(section.title);
-      if (rows.length > 1) {
-        ws["!merges"] = [
-          {
-            s: { r: 1, c: 0 },
-            e: { r: rows.length - 1, c: 0 },
-          },
-        ];
-        const addr = XLSXStyle.utils.encode_cell({ r: 1, c: 0 });
-        ws[addr] = { t: "s", v: sessionLabel, s: styleSessionCell } as unknown as XLSXStyle.CellObject;
-      }
-
-      const range = XLSXStyle.utils.decode_range(ws["!ref"] ?? "A1:H1");
-      for (let r = range.s.r; r <= range.e.r; r++) {
-        for (let c = range.s.c; c <= range.e.c; c++) {
-          const addr = XLSXStyle.utils.encode_cell({ r, c });
-          const cell = ws[addr];
-          if (!cell) continue;
-
-          if (r === 0) {
-            cell.s = styleHeader;
-          } else if (c === 0 && r === 1 && rows.length > 1) {
-            // already styled via ws[addr] assignment above
-            cell.s = styleSessionCell;
+          if (data.length === 0) {
+            rows.push([sessionLabel, "", "", "", "", "", "", ""]);
           } else {
-            cell.s = styleCell;
+            for (let i = 0; i < data.length; i++) {
+              const item = data[i];
+              rows.push([
+                i === 0 ? sessionLabel : "",
+                item.council,
+                item.room,
+                item.registered,
+                "", // actual
+                "", // violation
+                "", // time
+                "", // cancel
+              ]);
+            }
+          }
+
+          while (rows.length - 1 < defaultRowCount) {
+            rows.push(["", "", "", "", "", "", "", ""]);
           }
         }
+
+        const ws = XLSXStyle.utils.aoa_to_sheet(rows) as XLSXStyle.WorkSheet & {
+          "!cols"?: { wch?: number }[];
+          "!merges"?: { s: { r: number; c: number }; e: { r: number; c: number } }[];
+          "!freeze"?: { xSplit?: number; ySplit?: number };
+        };
+
+        ws["!cols"] = colWidths;
+        ws["!freeze"] = { ySplit: 1 };
+
+        // Merge "Ca thi" column vertically like the template image (if there is data)
+        if (rows.length > 1) {
+          ws["!merges"] = [
+            {
+              s: { r: 1, c: 0 },
+              e: { r: rows.length - 1, c: 0 },
+            },
+          ];
+          const addr = XLSXStyle.utils.encode_cell({ r: 1, c: 0 });
+          ws[addr] = { t: "s", v: sessionLabel, s: styleSessionCell } as unknown as XLSXStyle.CellObject;
+        }
+
+        const range = XLSXStyle.utils.decode_range(ws["!ref"] ?? "A1:H1");
+        for (let r = range.s.r; r <= range.e.r; r++) {
+          for (let c = range.s.c; c <= range.e.c; c++) {
+            const addr = XLSXStyle.utils.encode_cell({ r, c });
+            const cell = ws[addr];
+            if (!cell) continue;
+
+            if (r === 0) {
+              cell.s = styleHeader;
+            } else if (c === 0 && r === 1 && rows.length > 1) {
+              // already styled via ws[addr] assignment above
+              cell.s = styleSessionCell;
+            } else {
+              cell.s = styleCell;
+            }
+          }
+        }
+
+        // Sheet name: Excel limit is 31 chars & must be unique
+        const rawBase = section ? buildViolationSheetName(section.title) : `Ngày${day} - Ca${slot.session}`;
+        const baseName = rawBase
+          .trim()
+          .replace(/[\\/?*[\]:]/g, " ")
+          .replace(/\s+/g, " ")
+          .slice(0, 31);
+        const count = (usedSheetNames.get(baseName) ?? 0) + 1;
+        usedSheetNames.set(baseName, count);
+        const suffix = count === 1 ? "" : ` (${count})`;
+        const uniqueName =
+          suffix.length === 0 ? baseName : `${baseName.slice(0, Math.max(0, 31 - suffix.length))}${suffix}`;
+
+        XLSXStyle.utils.book_append_sheet(wb, ws, uniqueName);
       }
-
-      // Sheet name: Excel limit is 31 chars & must be unique
-      const rawBase = buildViolationSheetName(section.title) || section.sheetName.slice(0, 31);
-      const baseName = rawBase
-        .trim()
-        .replace(/[\\/?*[\]:]/g, " ")
-        .replace(/\s+/g, " ")
-        .slice(0, 31);
-      const count = (usedSheetNames.get(baseName) ?? 0) + 1;
-      usedSheetNames.set(baseName, count);
-      const suffix = count === 1 ? "" : ` (${count})`;
-      const uniqueName =
-        suffix.length === 0
-          ? baseName
-          : `${baseName.slice(0, Math.max(0, 31 - suffix.length))}${suffix}`;
-
-      XLSXStyle.utils.book_append_sheet(wb, ws, uniqueName);
     }
 
     XLSXStyle.writeFile(wb, `vi-pham-${report.pgsCode || "pgs"}.xlsx`);

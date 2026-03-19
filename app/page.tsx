@@ -71,6 +71,19 @@ const toDisplayCell = (value: CellValue): string => String(value ?? "").trim();
 
 const normalizePgsCode = (value: string): string => normalizeText(value);
 
+const getSectionCouncilCodes = (rows: string[][]): string => {
+  // [0]=STT, [1]=Tên HĐT, [2]=Mã HĐT, ...
+  const seen = new Set<string>();
+  const codes: string[] = [];
+  for (const row of rows) {
+    const code = String(row?.[2] ?? "").trim();
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    codes.push(code);
+  }
+  return codes.join(", ");
+};
+
 const parseSessionLabel = (sectionTitle: string): string => {
   // From: "NGÀY 1 - CA 1 (08:00 - 08:30) - 20/03"
   // To:   "Ca 1 (08:00 - 08:30)"
@@ -218,6 +231,7 @@ export default function Home() {
   const [report, setReport] = useState<ReportData | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const activeBuffer = useMemo(
     () => (dataSource === "default" ? defaultBuffer : uploadBuffer),
@@ -228,6 +242,25 @@ export default function Home() {
     return fileName || "";
   }, [dataSource, fileName]);
   const canSearch = useMemo(() => Boolean(activeBuffer) && pgsCode.trim(), [activeBuffer, pgsCode]);
+
+  const copyToClipboard = async (text: string) => {
+    const value = String(text ?? "").trim();
+    if (!value) return;
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+  };
 
   const loadDefaultExcel = async () => {
     try {
@@ -755,6 +788,24 @@ export default function Home() {
             report.sections.map((section) => (
               <div key={section.sheetName} className="rounded-lg border border-zinc-200 bg-white p-3 text-zinc-900">
                 <h2 className="mb-3 text-sm font-semibold text-zinc-900">{section.title}</h2>
+                {/* Danh sách mã hội đồng thi trong ca thi cách nhau bởi dấu phẩy*/}
+                <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-zinc-700">
+                  <span>Danh sách mã HĐT: {getSectionCouncilCodes(section.rows) || "Không có"}</span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const text = getSectionCouncilCodes(section.rows);
+                      if (!text) return;
+                      await copyToClipboard(text);
+                      setCopiedKey(section.sheetName);
+                      window.setTimeout(() => setCopiedKey((prev) => (prev === section.sheetName ? null : prev)), 1200);
+                    }}
+                    disabled={!getSectionCouncilCodes(section.rows)}
+                    className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-zinc-900 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {copiedKey === section.sheetName ? "Đã copy" : "Copy"}
+                  </button>
+                </div>
                 <div className="overflow-auto">
                   <table className="min-w-full border-collapse text-xs">
                     <thead>

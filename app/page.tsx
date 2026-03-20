@@ -3,6 +3,7 @@
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import * as XLSXStyle from "xlsx-js-style";
+import TrackingChatLog from "@/components/TrackingChatLog";
 
 type CellValue = string | number | boolean | null | undefined;
 type RowData = Record<string, CellValue>;
@@ -301,6 +302,10 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [subjectByDaySession, setSubjectByDaySession] = useState<Record<string, string>>({});
+  const [chatLogText, setChatLogText] = useState<string>("");
+  const [chatFileName, setChatFileName] = useState<string>("");
+  const [chatError, setChatError] = useState<string>("");
+  const [chatLoading, setChatLoading] = useState<boolean>(false);
 
   const activeBuffer = useMemo(
     () => (dataSource === "default" ? defaultBuffer : uploadBuffer),
@@ -720,6 +725,26 @@ export default function Home() {
     }
   };
 
+  const handleChatFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    setChatError("");
+    setChatLogText("");
+    setChatFileName("");
+
+    if (!file) return;
+
+    try {
+      setChatLoading(true);
+      const text = await file.text();
+      setChatLogText(text);
+      setChatFileName(file.name);
+    } catch {
+      setChatError("Khong doc duoc file chat log .txt.");
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   const handleSearch = (event: ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value.trim();
     setPgsCode(value);
@@ -853,11 +878,33 @@ export default function Home() {
         </div>
       </section>
 
-      {activeName && (
-        <p className="mt-4 text-sm text-zinc-700">
-          Dang su dung: <strong>{activeName}</strong>
-        </p>
-      )}
+      {/* Input chat log webex */}
+      {/* Action tracking điểm danh */}
+
+      <section className="mt-6 space-y-3 rounded-xl border border-zinc-200 bg-white p-4 text-sm text-zinc-900">
+        <div>
+          <h2 className="text-base font-semibold text-zinc-900">Import chat log Webex <span className="text-red-500">(Chưa hoạt động)</span></h2>
+          <p className="mt-1 text-xs text-zinc-700">
+            Chọn file <code className="font-mono">.txt</code>. Hệ thống sẽ tách theo “ca” dựa trên khoảng cách thời gian
+            giữa các tin nhắn.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium">File chat log (.txt)</label>
+          <input
+            type="file"
+            accept=".txt,text/plain"
+            onChange={handleChatFileChange}
+            className="block w-full text-sm text-zinc-900 file:mr-4 file:rounded-md file:border file:border-zinc-200 file:bg-zinc-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-zinc-900 hover:file:bg-zinc-200"
+          />
+        </div>
+
+        {chatError && <p className="text-xs text-red-600">{chatError}</p>}
+        {chatLoading && <p className="text-xs text-zinc-700">Đang đọc file chat...</p>}
+      </section>
+
+      {chatLogText && <TrackingChatLog chatLogText={chatLogText} fileName={chatFileName} />}
 
       {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
 
@@ -875,59 +922,90 @@ export default function Home() {
           {report.sections.length === 0 ? (
             <p className="text-sm text-zinc-700">Không có ca thi nào phù hợp với mã phòng giám sát này.</p>
           ) : (
-            report.sections.map((section) => (
-              <div key={section.sheetName} className="rounded-lg border border-zinc-200 bg-white p-3 text-zinc-900">
-                <h2 className="mb-3 text-sm font-semibold text-zinc-900">{section.title}</h2>
-                {/* Danh sách mã hội đồng thi trong ca thi cách nhau bởi dấu phẩy*/}
-                <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-zinc-700">
-                  <span>Danh sách mã HĐT: {getSectionCouncilCodes(section.rows) || "Không có"}</span>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const text = getSectionCouncilCodes(section.rows);
-                      if (!text) return;
-                      await copyToClipboard(text);
-                      setCopiedKey(section.sheetName);
-                      window.setTimeout(() => setCopiedKey((prev) => (prev === section.sheetName ? null : prev)), 1200);
-                    }}
-                    disabled={!getSectionCouncilCodes(section.rows)}
-                    className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-zinc-900 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {copiedKey === section.sheetName ? "Đã copy" : "Copy"}
-                  </button>
-                </div>
-                <div className="overflow-auto">
-                  <table className="min-w-full border-collapse text-xs">
-                    <thead>
-                      <tr>
-                        {section.headers.map((header, idx) => (
-                          <th
-                            key={`${section.sheetName}-h-${idx}`}
-                            className="border border-zinc-300 bg-zinc-100 px-2 py-1 text-left font-medium text-zinc-900"
-                          >
-                            {header}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {section.rows.map((row, rowIndex) => (
-                        <tr key={`${section.sheetName}-r-${rowIndex}`}>
-                          {row.map((cell, cellIndex) => (
-                            <td
-                              key={`${section.sheetName}-r-${rowIndex}-c-${cellIndex}`}
-                              className="border border-zinc-200 px-2 py-1 align-top text-zinc-900"
+            report.sections.map((section) => {
+              // Cột "SL hs đăng ký" (theo yêu cầu: index = 4, tức cột số 5)
+              const registeredTotal = section.rows.reduce((sum, row) => {
+                const raw = row?.[4];
+                const s = String(raw ?? "").trim();
+                if (!s) return sum;
+
+                // Chuẩn hoá các dạng phân tách hàng nghìn: "1.234" hoặc "1,234"
+                const normalized = s.replace(/\./g, "").replace(/,/g, "");
+                const n = Number(normalized);
+                return sum + (Number.isFinite(n) ? n : 0);
+              }, 0);
+
+              const colCount = section.headers.length;
+              const extraEmptyCellsCount = Math.max(0, colCount - 5); // Sau index=4
+
+              return (
+                <div key={section.sheetName} className="rounded-lg border border-zinc-200 bg-white p-3 text-zinc-900">
+                  <h2 className="mb-3 text-sm font-semibold text-zinc-900">{section.title}</h2>
+                  {/* Danh sách mã hội đồng thi trong ca thi cách nhau bởi dấu phẩy*/}
+                  <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-zinc-700">
+                    <span>Danh sách mã HĐT: {getSectionCouncilCodes(section.rows) || "Không có"}</span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const text = getSectionCouncilCodes(section.rows);
+                        if (!text) return;
+                        await copyToClipboard(text);
+                        setCopiedKey(section.sheetName);
+                        window.setTimeout(() => setCopiedKey((prev) => (prev === section.sheetName ? null : prev)), 1200);
+                      }}
+                      disabled={!getSectionCouncilCodes(section.rows)}
+                      className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-zinc-900 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {copiedKey === section.sheetName ? "Đã copy" : "Copy"}
+                    </button>
+                  </div>
+                  <div className="overflow-auto">
+                    <table className="min-w-full border-collapse text-xs">
+                      <thead>
+                        <tr>
+                          {section.headers.map((header, idx) => (
+                            <th
+                              key={`${section.sheetName}-h-${idx}`}
+                              className="border border-zinc-300 bg-zinc-100 px-2 py-1 text-left font-medium text-zinc-900"
                             >
-                              {cell}
-                            </td>
+                              {header}
+                            </th>
                           ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {section.rows.map((row, rowIndex) => (
+                          <tr key={`${section.sheetName}-r-${rowIndex}`}>
+                            {row.map((cell, cellIndex) => (
+                              <td
+                                key={`${section.sheetName}-r-${rowIndex}-c-${cellIndex}`}
+                                className="border border-zinc-200 px-2 py-1 align-top text-zinc-900"
+                              >
+                                {cell}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+
+                        {/* Tổng SL hs đăng ký của ca (ngay dưới cột index=4) */}
+                        <tr className="bg-zinc-50 font-semibold">
+                          <td colSpan={4} className="border border-zinc-300 px-2 py-1 text-left text-zinc-900">
+                            Tổng số học sinh đăng ký
+                          </td>
+                          <td className="border border-zinc-300 px-2 py-1 text-left text-zinc-900">
+                            {registeredTotal}
+                          </td>
+                          {Array.from({ length: extraEmptyCellsCount }).map((_, i) => (
+                            <td key={`${section.sheetName}-total-empty-${i}`} className="border border-zinc-300 px-2 py-1" />
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* Show box chat log webex theo ca thi */}
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </section>
       )}

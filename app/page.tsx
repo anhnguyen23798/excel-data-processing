@@ -378,6 +378,16 @@ export default function Home() {
   const exportViolationTemplate = () => {
     if (!report) return;
 
+    const parseNumberCell = (value: unknown): number | "" => {
+      const s = String(value ?? "").trim();
+      if (!s) return "";
+
+      // Normalize thousand separators: "1.234" or "1,234" -> 1234
+      const normalized = s.replace(/\./g, "").replace(/,/g, "");
+      const n = Number(normalized);
+      return Number.isFinite(n) ? n : "";
+    };
+
     const headers = [
       "Ca thi",
       "Hội đồng",
@@ -457,7 +467,7 @@ export default function Home() {
             ""
         ).trim();
         const sessionCellText = subjectName ? `${sessionLabel}\n${subjectName}` : sessionLabel;
-        const rows: string[][] = [];
+        const rows: (string | number)[][] = [];
         const firstHeader = slot.reserve ? "Ca thi dự phòng" : "Ca thi";
         rows.push([firstHeader, ...headers.slice(1)]);
 
@@ -469,11 +479,12 @@ export default function Home() {
           }
         } else {
           // Best-effort mapping from the “phân công” export:
-          // [0]=STT, [1]=Tên HĐT, [2]=Mã HĐT, [3]=Phòng thi, [4]=SL đăng ký, ...
+          // [0]=STT, [1]=Tên HĐT, [2]=Mã HĐT, [3]=Phòng thi, [4]=SL đăng ký, [5]=SL thực tế, ...
           const data = section.rows.map((r) => ({
             council: String(r[1] ?? "").trim(),
             room: String(r[3] ?? "").trim(),
-            registered: String(r[4] ?? "").trim(),
+            registered: parseNumberCell(r[4]),
+            actual: parseNumberCell(r[5]),
           }));
 
           if (data.length === 0) {
@@ -486,7 +497,7 @@ export default function Home() {
                 item.council,
                 item.room,
                 item.registered,
-                "", // actual
+                item.actual,
                 "", // violation
                 "", // time
                 "", // cancel

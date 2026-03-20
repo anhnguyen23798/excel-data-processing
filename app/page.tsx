@@ -787,6 +787,8 @@ export default function Home() {
         Mặc định hệ thống dùng file <strong>data</strong> có sẵn. Bạn có thể chuyển sang <strong>dữ liệu upload</strong>{" "}
         để dùng file Excel bạn chọn. Nhập{" "}
         <strong>Mã phòng giám sát</strong> (ví dụ: PGS19), hệ thống sẽ tạo bảng kết quả theo từng ca thi như file mẫu.
+        <br />
+        <span className="text-red-500">*File data được cập nhật vào lúc 14h ngày 20/03/2026</span>
       </p>
 
       <section className="mt-6 grid gap-4 rounded-xl border border-zinc-200 bg-white p-4">

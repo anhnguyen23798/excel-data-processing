@@ -109,6 +109,19 @@ const isHdtTrackingMessage = (message: string): boolean => {
   return lower.startsWith("hđt") || lower.startsWith("hdt");
 };
 
+/** Ca + ngày (MM-DD trong YYYY-MM-DD): hiển thị full mọi tin trong khung giờ ca (bỏ lọc HĐT/HDT). */
+const FULL_CHAT_BY_MONTH_DAY: { monthDay: string; sessions: number[] }[] = [
+  { monthDay: "03-21", sessions: [4, 8] },
+  { monthDay: "03-22", sessions: [4, 6] },
+];
+
+const isFullChatCa = (dateText: string, session: number): boolean => {
+  const monthDay = dateText.slice(5);
+  return FULL_CHAT_BY_MONTH_DAY.some(
+    (e) => e.monthDay === monthDay && e.sessions.includes(session)
+  );
+};
+
 export default function TrackingChatLog({
   chatLogText,
   fileName,
@@ -127,14 +140,13 @@ export default function TrackingChatLog({
       else if (line.trim()) unparsed++;
     }
 
-    const hdtOnly = parsed.filter((m) => isHdtTrackingMessage(m.message));
-    const sorted = [...hdtOnly].sort((a, b) => a.at.getTime() - b.at.getTime());
+    const sortedAll = [...parsed].sort((a, b) => a.at.getTime() - b.at.getTime());
 
     // groupKey: `${dateText}|ca-${session}`
     const groupMap = new Map<string, CaGroup>();
     const outsideCaMessages: ChatMessage[] = [];
 
-    for (const msg of sorted) {
+    for (const msg of sortedAll) {
       let matchedSlot: CaSlot | null = null;
 
       for (const slot of CA_SCHEDULE) {
@@ -149,9 +161,12 @@ export default function TrackingChatLog({
       }
 
       if (!matchedSlot) {
-        outsideCaMessages.push(msg);
+        if (isHdtTrackingMessage(msg.message)) outsideCaMessages.push(msg);
         continue;
       }
+
+      const fullChat = isFullChatCa(msg.dateText, matchedSlot.session);
+      if (!fullChat && !isHdtTrackingMessage(msg.message)) continue;
 
       const key = `${msg.dateText}|ca-${matchedSlot.session}`;
       if (!groupMap.has(key)) {
@@ -196,7 +211,8 @@ export default function TrackingChatLog({
       return a.index - b.index;
     });
 
-    return { groups, unparsedCount: unparsed, totalCount: hdtOnly.length };
+    const totalCount = groups.reduce((sum, g) => sum + g.messages.length, 0);
+    return { groups, unparsedCount: unparsed, totalCount };
   }, [chatLogText]);
 
   const [activeGroupTitle, setActiveGroupTitle] = useState<string>("");
@@ -258,10 +274,6 @@ export default function TrackingChatLog({
             )}
           </p>
         </div>
-        <p className="text-xs text-zinc-700">
-          Chỉ hiển thị tin bắt đầu bằng <strong>HĐT</strong> hoặc <strong>HDT</strong> (không phân biệt hoa thường). Chia theo khung giờ ca thi: log từ{" "}
-          <strong>trước 30 phút</strong> đến khi <strong>kết thúc ca</strong>
-        </p>
       </div>
 
       <div className="mt-3">

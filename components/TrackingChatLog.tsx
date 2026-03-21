@@ -217,6 +217,36 @@ export default function TrackingChatLog({
 
   const [activeGroupTitle, setActiveGroupTitle] = useState<string>("");
   const [copiedMsgKey, setCopiedMsgKey] = useState<string>("");
+  const [chatSearchQuery, setChatSearchQuery] = useState("");
+
+  type SearchMatch = {
+    groupTitle: string;
+    groupIndex: number;
+    tabLabel: string;
+    message: ChatMessage;
+    msgIndex: number;
+  };
+
+  const searchMatches = useMemo(() => {
+    const q = chatSearchQuery.trim().toLowerCase();
+    if (!q) return [] as SearchMatch[];
+    const results: SearchMatch[] = [];
+    for (const g of groups) {
+      g.messages.forEach((m, idx) => {
+        const haystack = `${m.message}\n${m.user}\n${m.rawLine}`.toLowerCase();
+        if (haystack.includes(q)) {
+          results.push({
+            groupTitle: g.title,
+            groupIndex: g.index,
+            tabLabel: g.index === 999 ? g.title : `Ca ${g.index}`,
+            message: m,
+            msgIndex: idx,
+          });
+        }
+      });
+    }
+    return results;
+  }, [groups, chatSearchQuery]);
   useEffect(() => {
     if (groups.length === 0) {
       setActiveGroupTitle("");
@@ -287,6 +317,61 @@ export default function TrackingChatLog({
           ) : null}
         </p>
       </div>
+
+      {groups.length > 0 ? (
+        <div className="mt-3 space-y-2">
+          <label className="block text-xs font-medium text-zinc-800" htmlFor="tracking-chat-search">
+            Tìm trong chat theo ca
+          </label>
+          <input
+            id="tracking-chat-search"
+            type="search"
+            value={chatSearchQuery}
+            onChange={(e) => setChatSearchQuery(e.target.value)}
+            placeholder="Nội dung tin, tên user, hoặc dòng log…"
+            className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+            autoComplete="off"
+          />
+          {chatSearchQuery.trim() ? (
+            <p className="text-xs text-zinc-600">
+              {searchMatches.length === 0 ? (
+                <>Không có tin khớp.</>
+              ) : (
+                <>
+                  <strong>{searchMatches.length}</strong> tin khớp trên toàn bộ ca
+                </>
+              )}
+            </p>
+          ) : null}
+          {searchMatches.length > 0 ? (
+            <ul className="max-h-40 overflow-y-auto rounded-md border border-zinc-200 bg-zinc-50 py-1 text-xs">
+              {searchMatches.map((hit, i) => {
+                const key = `${hit.groupTitle}-${hit.message.at.getTime()}-${hit.msgIndex}-${i}`;
+                return (
+                  <li key={key} className="border-b border-zinc-100 last:border-b-0">
+                    <button
+                      type="button"
+                      onClick={() => setActiveGroupTitle(hit.groupTitle)}
+                      className="w-full px-2 py-1.5 text-left transition-colors hover:bg-zinc-100"
+                    >
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <span className="shrink-0 rounded bg-zinc-200 px-1.5 py-0.5 font-semibold text-zinc-800">
+                          {hit.tabLabel}
+                        </span>
+                        <span className="font-mono text-[11px] text-zinc-500">
+                          {hit.message.dateText} {hit.message.timeText}
+                        </span>
+                        <span className="font-semibold text-zinc-800">{hit.message.user}</span>
+                      </div>
+                      <div className="mt-0.5 line-clamp-2 break-words text-zinc-700">{hit.message.message}</div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mt-4 max-h-[70vh] overflow-y-auto pr-1">
         {groups.length === 0 ? (

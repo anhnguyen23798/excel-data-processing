@@ -101,6 +101,14 @@ const buildCaWindowForMessage = (msg: ChatMessage, slot: CaSlot) => {
   return { startMinus30, end };
 };
 
+/** Tin tracking: nội dung bắt đầu bằng HĐT hoặc HDT (không phân biệt hoa thường). */
+const isHdtTrackingMessage = (message: string): boolean => {
+  const t = message.trim();
+  if (!t) return false;
+  const lower = t.toLocaleLowerCase("vi");
+  return lower.startsWith("hđt") || lower.startsWith("hdt");
+};
+
 export default function TrackingChatLog({
   chatLogText,
   fileName,
@@ -119,7 +127,8 @@ export default function TrackingChatLog({
       else if (line.trim()) unparsed++;
     }
 
-    const sorted = [...parsed].sort((a, b) => a.at.getTime() - b.at.getTime());
+    const hdtOnly = parsed.filter((m) => isHdtTrackingMessage(m.message));
+    const sorted = [...hdtOnly].sort((a, b) => a.at.getTime() - b.at.getTime());
 
     // groupKey: `${dateText}|ca-${session}`
     const groupMap = new Map<string, CaGroup>();
@@ -187,7 +196,7 @@ export default function TrackingChatLog({
       return a.index - b.index;
     });
 
-    return { groups, unparsedCount: unparsed, totalCount: parsed.length };
+    return { groups, unparsedCount: unparsed, totalCount: hdtOnly.length };
   }, [chatLogText]);
 
   const [activeGroupTitle, setActiveGroupTitle] = useState<string>("");
@@ -250,7 +259,8 @@ export default function TrackingChatLog({
           </p>
         </div>
         <p className="text-xs text-zinc-700">
-          Chia theo khung giờ ca thi: lấy log từ <strong>trước 30 phút</strong> đến khi <strong>kết thúc ca</strong>
+          Chỉ hiển thị tin bắt đầu bằng <strong>HĐT</strong> hoặc <strong>HDT</strong> (không phân biệt hoa thường). Chia theo khung giờ ca thi: log từ{" "}
+          <strong>trước 30 phút</strong> đến khi <strong>kết thúc ca</strong>
         </p>
       </div>
 

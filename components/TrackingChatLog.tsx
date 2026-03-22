@@ -227,26 +227,6 @@ export default function TrackingChatLog({
     msgIndex: number;
   };
 
-  const searchMatches = useMemo(() => {
-    const q = chatSearchQuery.trim().toLowerCase();
-    if (!q) return [] as SearchMatch[];
-    const results: SearchMatch[] = [];
-    for (const g of groups) {
-      g.messages.forEach((m, idx) => {
-        const haystack = `${m.message}\n${m.user}\n${m.rawLine}`.toLowerCase();
-        if (haystack.includes(q)) {
-          results.push({
-            groupTitle: g.title,
-            groupIndex: g.index,
-            tabLabel: g.index === 999 ? g.title : `Ca ${g.index}`,
-            message: m,
-            msgIndex: idx,
-          });
-        }
-      });
-    }
-    return results;
-  }, [groups, chatSearchQuery]);
   useEffect(() => {
     if (groups.length === 0) {
       setActiveGroupTitle("");
@@ -260,6 +240,26 @@ export default function TrackingChatLog({
     if (groups.length === 0) return null;
     return groups.find((g) => g.title === activeGroupTitle) ?? groups[0] ?? null;
   }, [groups, activeGroupTitle]);
+
+  const searchMatches = useMemo(() => {
+    const q = chatSearchQuery.trim().toLowerCase();
+    if (!q || !activeGroup) return [] as SearchMatch[];
+    const g = activeGroup;
+    const results: SearchMatch[] = [];
+    g.messages.forEach((m, idx) => {
+      const haystack = `${m.message}\n${m.user}\n${m.rawLine}`.toLowerCase();
+      if (haystack.includes(q)) {
+        results.push({
+          groupTitle: g.title,
+          groupIndex: g.index,
+          tabLabel: g.index === 999 ? g.title : `Ca ${g.index}`,
+          message: m,
+          msgIndex: idx,
+        });
+      }
+    });
+    return results;
+  }, [activeGroup, chatSearchQuery]);
 
   const copyToClipboard = async (text: string) => {
     try {
@@ -321,7 +321,7 @@ export default function TrackingChatLog({
       {groups.length > 0 ? (
         <div className="mt-3 space-y-2">
           <label className="block text-xs font-medium text-zinc-800" htmlFor="tracking-chat-search">
-            Tìm trong chat theo ca
+            Tìm trong ca đang chọn
           </label>
           <input
             id="tracking-chat-search"
@@ -338,7 +338,7 @@ export default function TrackingChatLog({
                 <>Không có tin khớp.</>
               ) : (
                 <>
-                  <strong>{searchMatches.length}</strong> tin khớp trên toàn bộ ca
+                  <strong>{searchMatches.length}</strong> tin khớp trong ca này
                 </>
               )}
             </p>
